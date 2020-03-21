@@ -24,7 +24,7 @@ def getSongNameFromFile(file_name):
 
     output = str(process.stdout).strip()
 
-    return process.stdout
+    return output
 
 
 def getArtistFromFile(file_name):
@@ -33,6 +33,15 @@ def getArtistFromFile(file_name):
     process = subprocess.run(commandToRun, shell=True, check=True,
                              stdout=subprocess.PIPE, universal_newlines=True, cwd=PATH_TO_MP3)
 
+    return process.stdout
+
+
+def playSong(file_name):
+    commandToRun = "ffplay "
+    commandToRun += file_name
+
+    process = subprocess.run(commandToRun, shell=True, check=True,
+                             stdout=subprocess.PIPE, universal_newlines=True, cwd=PATH_TO_MP3)
     return process.stdout
 
 
@@ -46,16 +55,14 @@ class Song(object):
         self.song_title = song_title
         self.song_artist = song_artist
         self.buffer = buffer
-        self.lastCharInData = False
+        self.lastCharInSong = False
 
 
 class Trie(object):
 
     def __init__(self):
         self.head = Song("", "", "", "", "")
-        self.curSong = self.head
         self.possibleSongs = []  # possible songs will contain song objects
-        self.visitedCharacters = []  # keeps track of which nodes we have visited at each leve
 
     '''
         function: addSong (Recursive)
@@ -65,37 +72,33 @@ class Trie(object):
         purpose: adds a string of characters into the tree
     '''
 
-    def addSong(self, songToAdd, atStart):
-
-        if(atStart):  # this function will operate recursivly, we need to know if we are creating a new entry
-            self.curSong = self.head
+    def addSong(self, songToAdd, current_song):
 
         haveNextLetter = False
         # is the character to add in the set of members
-        for member in self.curSong.members:
-            if member.character == songToAdd.buffer[0]:
+        for member in current_song.members:
 
+            if member.character == songToAdd.buffer[0].lower():
                 # we could write after a song that contains a filepath
-                if(not member.lastCharInData):
+                if(not member.lastCharInSong):
                     member.filePath = ""
                     member.song_name = ""
                     member.song_artist = ""
-
-                self.curSong = member
+                current_song = member
                 haveNextLetter = True
                 break
 
         # are we going to need to add a new element to the tree, meaning a unique song
         if(haveNextLetter == False):
-            newSong = Song(buffer="", character=songToAdd.buffer[0],
+            newSong = Song(buffer="", character=songToAdd.buffer[0].lower(),
                            filePath=songToAdd.filePath,  song_title=songToAdd.song_title, song_artist=songToAdd.song_artist)
 
-            self.curSong.members.append(newSong)
-            self.curSong = newSong
+            current_song.members.append(newSong)
+            current_song = newSong
 
         # if last character, designate this as end of data so we know not to overwrite its filepath
         if(len(songToAdd.buffer) == 1):
-            self.curSong.lastCharInData = True
+            current_song.lastCharInSong = True
 
         songToAdd.buffer = songToAdd.buffer[1:]
 
@@ -103,7 +106,7 @@ class Trie(object):
             # we have added all the needed text
             print("Successfully added: {}".format(songToAdd.song_title))
         else:
-            self.addSong(songToAdd, False)
+            self.addSong(songToAdd, current_song)
 
     '''
         function: traverseAllPaths (Recursive)
@@ -116,24 +119,21 @@ class Trie(object):
 
     def traverseAllPaths(self, songObject):
 
-        if(songObject.filePath != '' and songObject.character not in self.visitedCharacters):
+        # if we find a filepath that isnt designated as the last song, we dont have to go any further
+        if(songObject.filePath != ''):
             self.possibleSongs.append(songObject)
-            if(not songObject.lastCharInData):  # there is no point traversing any further
+            if(not songObject.lastCharInSong):
                 return
 
-        self.visitedCharacters.append(songObject.character)
-
         for member in songObject.members:
-            if(member.character not in self.visitedCharacters):
-                self.traverseAllPaths(member)
-                self.visitedCharacters.clear()
+            self.traverseAllPaths(member)
 
         return
 
     '''
         function: getpossibleSongs
 
-        input: text to search for
+        input: song intance to begin search from
 
         purpose: return possible files based on user entry then call traverseAllPaths to find all possible files after that
 
@@ -143,7 +143,7 @@ class Trie(object):
         self.possibleSongs.clear()
         text = searchTerm.lower()
 
-        self.curSong = self.head
+        current_song = self.head
 
         '''
         First deal with the given text.
@@ -154,30 +154,32 @@ class Trie(object):
         while (len(text) != 0):
 
             foundCharacter = False
-            for member in self.curSong.members:
+            for member in current_song.members:
                 if(member.character.lower() == text[0]):
                     foundCharacter = True
                     if(member.filePath != ""):
-                        # if we reach a filepath we only need to continue the search if the node is not marked as lastCharInData
+                        # if we reach a filepath we only need to continue the search if the node is not marked as lastCharInSong
                         self.possibleSongs.append(member)
 
-                        if(not member.lastCharInData):
+                        if(not member.lastCharInSong):
                             print("Only 1 song matches the input")
                             return
 
-                    self.curSong = member
+                    current_song = member
+
             if(foundCharacter == False):
                 return "No Results"
+
             text = text[1:]
 
         '''
-        now add the possible results
+        now add the 'auto complete' results
 
         depth first search from where the given text left us
 
         '''
 
-        self.traverseAllPaths(self.curSong)
+        self.traverseAllPaths(current_song)
 
     '''
         function: addFiles
@@ -209,7 +211,7 @@ class Trie(object):
             songToAdd = Song(buffer=songName, character=songName[0], filePath=filePath,
                              song_title=songName, song_artist=artistName)
 
-            self.addSong(songToAdd, True)
+            self.addSong(songToAdd, self.head)
 
 
 def main():
@@ -230,12 +232,24 @@ def main():
             print("\n \n \n")
         else:
             t_stop = process_time()
+
+            i = 0
             for song in dataTree.possibleSongs:
                 print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
+                print("Song {}".format(i + 1))
                 print("Title: {} \nArtist: {} \nFilePath: {}\n Search completed in {} seconds.".format(
                     song.song_title, song.song_artist, song.filePath, t_stop - t_start))
+                i += 1
             print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
-            print('\n \n \n')
+            print('\n')
+
+            response = input("Would you like to play a song? (y/n)")
+
+            if(response.lower() == "y"):
+                response = int(input("Which song number?"))
+
+                playSong(dataTree.possibleSongs[response - 1].filePath)
+                print("\n \n")
 
 
 if __name__ == "__main__":
