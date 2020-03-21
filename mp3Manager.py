@@ -7,7 +7,6 @@ mp3Manager v 1.0.0
 
 Adam Gurysh
 
-All recursive functions take True as a third argument. Some people will hate this i think it improves code readability.
 
 '''
 
@@ -15,21 +14,48 @@ All recursive functions take True as a third argument. Some people will hate thi
 PATH_TO_MP3 = "/home/adam/Desktop/MP3"
 
 
-class Node(object):
-    def __init__(self, character, filePath):
+def getSongNameFromFile(file_name):
+
+    commandToRun = 'ffprobe -loglevel error -show_entries format_tags=title -of default=noprint_wrappers=1:nokey=1 '
+    commandToRun += file_name
+    process = subprocess.run(commandToRun, shell=True, check=True,
+                             stdout=subprocess.PIPE, universal_newlines=True, cwd=PATH_TO_MP3)
+
+    output = str(process.stdout).strip()
+
+    return process.stdout
+
+
+def getArtistFromFile(file_name):
+    commandToRun = 'ffprobe -loglevel error -show_entries format_tags=artist -of default=noprint_wrappers=1:nokey=1 '
+    commandToRun += file_name
+    process = subprocess.run(commandToRun, shell=True, check=True,
+                             stdout=subprocess.PIPE, universal_newlines=True, cwd=PATH_TO_MP3)
+
+    return process.stdout
+
+
+# everything is a song, if a song doesnt have a filepath, its letter is being shared by more than one song
+
+class Song(object):
+    def __init__(self, character, filePath, song_title, song_artist, buffer):
         self.character = character
         self.members = []
         self.filePath = filePath
+        self.song_title = song_title
+        self.song_artist = song_artist
+        self.buffer = buffer
         self.lastCharInData = False
 
 
 class Trie(object):
 
     def __init__(self):
-        self.head = Node("", "")
-        self.curNode = self.head
-        self.possibleFiles = []
-        self.visitedNodes = []
+        self.head = Song("", "", "", "", "")
+        self.curSong = self.head
+        self.possibleSongs = []  # possible songs will contain song objects
+        self.possibleSongNames = []
+        self.visitedSongs = []
 
     '''
         function: addData (Recursive)
@@ -39,70 +65,73 @@ class Trie(object):
         purpose: adds a string of characters into the tree
     '''
 
-    def addData(self, textToAdd, fileLocation, atStart):
+    def addData(self, songToAdd, atStart):
+
         if(atStart):  # this function will operate recursivly, we need to know if we are creating a new entry
-            self.curNode = self.head
-            atStart = False
+            self.curSong = self.head
 
         haveNextLetter = False
         # is the character to add in the set of members
-        for member in self.curNode.members:
-            if member.character == textToAdd[0].lower():
+        for member in self.curSong.members:
+            if member.character == songToAdd.buffer[0]:
 
-                # we could write after a node that contains a filepath
+                # we could write after a song that contains a filepath
                 if(not member.lastCharInData):
                     member.filePath = ""
+                    member.song_name = ""
+                    member.song_artist = ""
 
-                self.curNode = member
+                self.curSong = member
                 haveNextLetter = True
                 break
 
-        # are we going to need to add a new characer
+        # are we going to need to add a new element to the tree, meaning a unique song
         if(haveNextLetter == False):
-            newNode = Node(textToAdd[0].lower(), fileLocation)
-            self.curNode.members.append(newNode)
-            self.curNode.members
-            self.curNode = newNode
+            newSong = Song(buffer="", character=songToAdd.buffer[0],
+                           filePath=songToAdd.filePath,  song_title=songToAdd.song_title, song_artist=songToAdd.song_artist)
+
+            self.curSong.members.append(newSong)
+            self.curSong = newSong
 
         # if last character, designate this as end of data so we know not to overwrite its filepath
-        if(len(textToAdd) == 1):
-            self.curNode.lastCharInData = True
+        if(len(songToAdd.buffer) == 1):
+            self.curSong.lastCharInData = True
 
-        textToAdd = textToAdd[1:]
+        songToAdd.buffer = songToAdd.buffer[1:]
 
-        if(textToAdd == ""):
+        if(songToAdd.buffer == ""):
             # we have added all the needed text
-            print("Entry has been added!")
+            print("Successfully added: {}".format(songToAdd.song_title))
         else:
-            self.addData(textToAdd, fileLocation, False)
+            self.addData(songToAdd, False)
 
     '''
         function: traverseAllPaths (Recursive)
 
-        input: the node to start from, atStart representss if we are doing a new search
+        input: the song to start from, atStart representss if we are doing a new search
 
         purpose: add possible filePaths to list
 
     '''
 
-    def traverseAllPaths(self, nodeObject, atStart):
+    def traverseAllPaths(self, songObject, atStart):
         if(atStart):
-            self.visitedNodes.clear()
+            self.visitedSongs.clear()
             atStart = False
 
-        if(nodeObject.filePath != ''):
-            if(nodeObject.filePath not in self.possibleFiles):
-                self.possibleFiles.append(nodeObject.filePath)
-                self.visitedNodes.append(nodeObject)
+        if(songObject.filePath != '' and songObject.song_title not in self.possibleSongNames):
+            self.possibleSongs.append(songObject)
+            self.visitedSongs.append(songObject)
+            self.possibleSongNames.append(songObject.song_title)
 
-        for member in nodeObject.members:
-            if(member not in self.visitedNodes):
+        for member in songObject.members:
+            if(member not in self.visitedSongs):
                 self.traverseAllPaths(member, False)
 
         return
 
     '''
-        function: getPossibleFiles
+        function: getpossibleSongs
 
         input: text to search for
 
@@ -110,41 +139,45 @@ class Trie(object):
 
     '''
 
-    def getPossibleFiles(self, searchTerm):
-        self.possibleFiles.clear()
-        searchTerm = searchTerm.lower()
-        text = searchTerm
-        self.curNode = self.head
+    def getpossibleSongs(self, searchTerm):
+        self.possibleSongs.clear()
+        text = searchTerm.lower()
+        self.possibleSongNames = []
+
+        self.curSong = self.head
 
         '''
         First deal with the given text.
         Traverse the tree until the last character
-        If there is a filepath at any node that is the only result we need to look for
+        If there is a filepath at any song that is the only result we need to look for
         '''
 
         while (len(text) != 0):
-            foundCharacter = False
-            for member in self.curNode.members:
-                if(member.character == text[0]):
-                    foundCharacter = True
-                    if(member.filePath != "" and member.filePath not in self.possibleFiles):
-                        self.possibleFiles.append(member.filePath)
 
-                    self.curNode = member
+            foundCharacter = False
+            for member in self.curSong.members:
+                if(member.character.lower() == text[0]):
+                    foundCharacter = True
+                    if(member.filePath != ""):
+                        # if we reach a filepath we only need to continue the search if the node is not marked as lastCharInData
+                        self.possibleSongs.append(member)
+                        self.possibleSongNames.append(member.song_title)
+                        if(not member.lastCharInData):
+                            return
+
+                    self.curSong = member
             if(foundCharacter == False):
                 return "No Results"
             text = text[1:]
 
         '''
-        now add the possible results 
+        now add the possible results
 
         depth first search from where the given text left us
 
         '''
 
-        self.traverseAllPaths(self.curNode, True)
-
-        return self.possibleFiles
+        self.traverseAllPaths(self.curSong, True)
 
     '''
         function: addFiles
@@ -157,52 +190,51 @@ class Trie(object):
 
     def addFiles(self, path_to_files):
 
-        fileNames = os.listdir(path_to_files)
+        filePaths = os.listdir(path_to_files)
 
-        print("adding the following files: {}".format(fileNames))
+        print("adding the following files: {}".format(filePaths))
 
-        for fileName in fileNames:
-            commandToRun = 'ffprobe -loglevel error -show_entries format_tags=title -of default=noprint_wrappers=1:nokey=1 '
-            commandToRun += fileName
+        for filePath in filePaths:
+            try:
+                # for each mp3 we are going to build a song object, then pass it to self.addData()
+                artistName = getArtistFromFile(filePath)
+            except:
+                print("could not get artist from {}".format(filePath))
 
             try:
-                process = subprocess.run(
-                    commandToRun, shell=True, check=True, stdout=subprocess.PIPE, universal_newlines=True, cwd=path_to_files)
-
-                output = process.stdout
-
-                self.addData(output, fileName, True)
-
+                songName = str(getSongNameFromFile(filePath))
             except:
-                print("could not get song title from file: {}".format(fileName))
+                print("could not get song title from file: {}".format(filePath))
+
+            songToAdd = Song(buffer=songName, character=songName[0], filePath=filePath,
+                             song_title=songName, song_artist=artistName)
+
+            self.addData(songToAdd, True)
 
 
 def main():
 
     dataTree = Trie()
 
-    dataTree.addData("Cochise", "/Desktop/cochize.mp3", True)
-
-    dataTree.addData("Show Me How To Live", "/Desktop/showmetolive.mp3", True)
-
-    dataTree.addData("Gasoline", "/Desktop/carJuice.mp3", True)
-
-    dataTree.addData("What You Are", "/Desktop/whatIAm.mp3", True)
-
-    dataTree.addData("Like a stone", "/Desktop/asArock.mp3", True)
-
-    dataTree.addData("Set it Off", "/Desktop/setItOff.mp3", True)
-
-    dataTree.addData("Shadow on the Sun", "/Desktop/shadow.mp3", True)
-
     dataTree.addFiles(PATH_TO_MP3)
 
     while(True):
         searchTerm = input("Enter some text to search the system: ")
 
-        print("Here are the possible files \n")
-        print(dataTree.getPossibleFiles(searchTerm))
-        print("\n")
+        print("Here are the possible songs: \n")
+
+        if(dataTree.getpossibleSongs(searchTerm) == "No Results"):
+            print("No Results")
+            print("\n \n \n")
+
+        else:
+
+            for song in dataTree.possibleSongs:
+                print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
+                print("Title: {} \nArtist: {} \nFilePath: {}".format(
+                    song.song_title, song.song_artist, song.filePath))
+            print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
+            print('\n \n \n')
 
 
 if __name__ == "__main__":
