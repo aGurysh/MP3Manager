@@ -1,5 +1,6 @@
 import os
 import subprocess
+from time import process_time
 
 '''
 
@@ -54,18 +55,17 @@ class Trie(object):
         self.head = Song("", "", "", "", "")
         self.curSong = self.head
         self.possibleSongs = []  # possible songs will contain song objects
-        self.possibleSongNames = []
-        self.visitedSongs = []
+        self.visitedCharacters = []  # keeps track of which nodes we have visited at each leve
 
     '''
-        function: addData (Recursive)
+        function: addSong (Recursive)
 
         input: textToAdd, fileLocation, atStart
 
         purpose: adds a string of characters into the tree
     '''
 
-    def addData(self, songToAdd, atStart):
+    def addSong(self, songToAdd, atStart):
 
         if(atStart):  # this function will operate recursivly, we need to know if we are creating a new entry
             self.curSong = self.head
@@ -103,7 +103,7 @@ class Trie(object):
             # we have added all the needed text
             print("Successfully added: {}".format(songToAdd.song_title))
         else:
-            self.addData(songToAdd, False)
+            self.addSong(songToAdd, False)
 
     '''
         function: traverseAllPaths (Recursive)
@@ -114,19 +114,19 @@ class Trie(object):
 
     '''
 
-    def traverseAllPaths(self, songObject, atStart):
-        if(atStart):
-            self.visitedSongs.clear()
-            atStart = False
+    def traverseAllPaths(self, songObject):
 
-        if(songObject.filePath != '' and songObject.song_title not in self.possibleSongNames):
+        if(songObject.filePath != '' and songObject.character not in self.visitedCharacters):
             self.possibleSongs.append(songObject)
-            self.visitedSongs.append(songObject)
-            self.possibleSongNames.append(songObject.song_title)
+            if(not songObject.lastCharInData):  # there is no point traversing any further
+                return
+
+        self.visitedCharacters.append(songObject.character)
 
         for member in songObject.members:
-            if(member not in self.visitedSongs):
-                self.traverseAllPaths(member, False)
+            if(member.character not in self.visitedCharacters):
+                self.traverseAllPaths(member)
+                self.visitedCharacters.clear()
 
         return
 
@@ -142,7 +142,6 @@ class Trie(object):
     def getpossibleSongs(self, searchTerm):
         self.possibleSongs.clear()
         text = searchTerm.lower()
-        self.possibleSongNames = []
 
         self.curSong = self.head
 
@@ -161,8 +160,9 @@ class Trie(object):
                     if(member.filePath != ""):
                         # if we reach a filepath we only need to continue the search if the node is not marked as lastCharInData
                         self.possibleSongs.append(member)
-                        self.possibleSongNames.append(member.song_title)
+
                         if(not member.lastCharInData):
+                            print("Only 1 song matches the input")
                             return
 
                     self.curSong = member
@@ -177,7 +177,7 @@ class Trie(object):
 
         '''
 
-        self.traverseAllPaths(self.curSong, True)
+        self.traverseAllPaths(self.curSong)
 
     '''
         function: addFiles
@@ -196,7 +196,7 @@ class Trie(object):
 
         for filePath in filePaths:
             try:
-                # for each mp3 we are going to build a song object, then pass it to self.addData()
+                # for each mp3 we are going to build a song object, then pass it to self.addSong()
                 artistName = getArtistFromFile(filePath)
             except:
                 print("could not get artist from {}".format(filePath))
@@ -209,7 +209,7 @@ class Trie(object):
             songToAdd = Song(buffer=songName, character=songName[0], filePath=filePath,
                              song_title=songName, song_artist=artistName)
 
-            self.addData(songToAdd, True)
+            self.addSong(songToAdd, True)
 
 
 def main():
@@ -223,16 +223,17 @@ def main():
 
         print("Here are the possible songs: \n")
 
+        t_start = process_time()
+
         if(dataTree.getpossibleSongs(searchTerm) == "No Results"):
             print("No Results")
             print("\n \n \n")
-
         else:
-
+            t_stop = process_time()
             for song in dataTree.possibleSongs:
                 print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
-                print("Title: {} \nArtist: {} \nFilePath: {}".format(
-                    song.song_title, song.song_artist, song.filePath))
+                print("Title: {} \nArtist: {} \nFilePath: {}\n Search completed in {} seconds.".format(
+                    song.song_title, song.song_artist, song.filePath, t_stop - t_start))
             print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
             print('\n \n \n')
 
